@@ -291,7 +291,7 @@ function handleDelete(row) {
   }).catch(() => {})
 }
 
-/** 删除按钮操作 */
+/** 按钮操作 */
 function handleEnable(row) {
   const params = {
     id: row.id,

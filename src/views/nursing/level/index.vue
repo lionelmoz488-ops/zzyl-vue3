@@ -9,13 +9,10 @@
           @keyup.enter="handleQuery"
         />
       </el-form-item>
-      <el-form-item label="护理计划ID" prop="planId">
-        <el-input
-          v-model="queryParams.planId"
-          placeholder="请输入护理计划ID"
-          clearable
-          @keyup.enter="handleQuery"
-        />
+      <el-form-item label="状态" prop="status">
+        <el-select v-model="queryParams.status" clearable placeholder="请选择" style="width: 240px">
+          <el-option v-for="item in nursing_level_status" :key="item.value" :label="item.label" :value="item.value" />
+        </el-select>
       </el-form-item>
       <el-form-item>
         <el-button type="primary" icon="Search" @click="handleQuery">搜索</el-button>
@@ -33,46 +30,23 @@
           v-hasPermi="['nursing:level:add']"
         >新增</el-button>
       </el-col>
-      <el-col :span="1.5">
-        <el-button
-          type="success"
-          plain
-          icon="Edit"
-          :disabled="single"
-          @click="handleUpdate"
-          v-hasPermi="['nursing:level:edit']"
-        >修改</el-button>
-      </el-col>
-      <el-col :span="1.5">
-        <el-button
-          type="danger"
-          plain
-          icon="Delete"
-          :disabled="multiple"
-          @click="handleDelete"
-          v-hasPermi="['nursing:level:remove']"
-        >删除</el-button>
-      </el-col>
-      <el-col :span="1.5">
-        <el-button
-          type="warning"
-          plain
-          icon="Download"
-          @click="handleExport"
-          v-hasPermi="['nursing:level:export']"
-        >导出</el-button>
-      </el-col>
       <right-toolbar v-model:showSearch="showSearch" @queryTable="getList"></right-toolbar>
     </el-row>
 
     <el-table v-loading="loading" :data="levelList" @selection-change="handleSelectionChange">
       <el-table-column type="selection" width="55" align="center" />
-      <el-table-column label="主键ID" align="center" prop="id" />
-      <el-table-column label="等级名称" align="center" prop="name" />
-      <el-table-column label="护理计划ID" align="center" prop="planId" />
-      <el-table-column label="护理费用" align="center" prop="fee" />
+      <el-table-column label="序号" align="center" type="index" prop="id" width="100px"/>
+      <el-table-column label="护理等级名称" align="center" prop="name" />
+      <el-table-column label="执行护理计划" align="center" prop="planName" />
+      <el-table-column label="护理费用(元/月)" align="center" prop="fee" />
       <el-table-column label="状态" align="center" prop="status" />
-      <el-table-column label="等级说明" align="center" prop="description" />
+      <el-table-column label="等级说明" align="center" prop="description" >
+         <template #default="scope">
+           
+            <el-tag :type="scope.row.status == 1 ? 'success' : 'danger'"> {{scope.row.status == 1 ? '启用' : '禁用'}}</el-tag>
+        </template>
+      </el-table-column>
+
       <el-table-column label="创建时间" align="center" prop="createTime" width="180">
         <template #default="scope">
           <span>{{ parseTime(scope.row.createTime, '{y}-{m}-{d}') }}</span>
@@ -80,9 +54,13 @@
       </el-table-column>
       <el-table-column label="操作" align="center" class-name="small-padding fixed-width">
         <template #default="scope">
-          <el-button link type="primary" icon="Edit" @click="handleUpdate(scope.row)" v-hasPermi="['nursing:level:edit']">修改</el-button>
-          <el-button link type="primary" icon="Delete" @click="handleDelete(scope.row)" v-hasPermi="['nursing:level:remove']">删除</el-button>
-        </template>
+          <el-button link type="primary" icon="Edit" :class="scope.row.count ? 'disabled' : ''"
+            @click="handleUpdate(scope.row)">修改</el-button>
+          <el-button link type="primary" icon="Delete" :class="scope.row.count ? 'disabled' : ''"
+            @click="handleDelete(scope.row)">删除</el-button>
+           <el-button link type="primary" :icon="scope.row.status == 0 ? 'Unlock' : 'lock'"
+            @click="handleEnable(scope.row)">{{ scope.row.status == 1 ? '禁用' : '启用' }}</el-button>
+            </template>
       </el-table-column>
     </el-table>
     
@@ -104,14 +82,28 @@
             </el-form-item>
           </el-col>
           <el-col :span="24">
-            <el-form-item label="护理计划ID" prop="planId">
-              <el-input v-model="form.planId" placeholder="请输入护理计划ID" />
+            <el-form-item label="护理计划" prop="planId">
+              <el-select v-model="form.planId" placeholder="请选择护理计划" style="width: 240px">
+                <el-option
+                  v-for="item in nursingPlanList"
+                  :key="item.id"
+                  :label="item.planName"
+                  :value="item.id"/>
+              </el-select>
             </el-form-item>
           </el-col>
           <el-col :span="24">
             <el-form-item label="护理费用" prop="fee">
               <el-input v-model="form.fee" placeholder="请输入护理费用" />
             </el-form-item>
+          </el-col>
+          <el-col :span="24">
+            <el-form-item label="状态" prop="status">
+          <el-radio-group v-model="form.status">
+            <el-radio v-for="(nls, index) in nursing_level_status" :key="index" :value="nls.value">{{
+              nls.label}}</el-radio>
+          </el-radio-group>
+        </el-form-item>
           </el-col>
           <el-col :span="24">
             <el-form-item label="等级说明" prop="description">
@@ -132,10 +124,12 @@
 
 <script setup name="Level">
 import { listLevel, getLevel, delLevel, addLevel, updateLevel } from "@/api/nursing/level"
+import { listPlan } from "@/api/nursing/plan";
 
 const { proxy } = getCurrentInstance()
 
 const levelList = ref([])
+const nursingPlanList = ref([])
 const open = ref(false)
 const loading = ref(true)
 const showSearch = ref(true)
@@ -148,11 +142,12 @@ const title = ref("")
 const data = reactive({
   form: {},
   queryParams: {
-    pageNum: 1,
-    pageSize: 10,
-    name: undefined,
-    planId: undefined,
-  },
+  pageNum: 1,
+  pageSize: 10,
+  name: undefined,
+  planId: undefined,
+  status: undefined
+},
   rules: {
     name: [
       { required: true, message: "等级名称不能为空", trigger: "blur" }
@@ -174,6 +169,8 @@ const data = reactive({
 
 const { queryParams, form, rules } = toRefs(data)
 
+/* 查询字典项数据 */
+const { nursing_level_status } = proxy.useDict('nursing_level_status')
 /** 查询护理等级列表 */
 function getList() {
   loading.value = true
@@ -266,6 +263,7 @@ function submitForm() {
   })
 }
 
+
 /** 删除按钮操作 */
 function handleDelete(row) {
   const _ids = row.id || ids.value
@@ -277,12 +275,49 @@ function handleDelete(row) {
   }).catch(() => {})
 }
 
-/** 导出按钮操作 */
-function handleExport() {
-  proxy.download('nursing/level/export', {
-    ...queryParams.value
-  }, `level_${new Date().getTime()}.xlsx`)
-}
+/** 禁用启用按钮操作 */
+function handleEnable(row) {
+  const params = {
+    id: row.id,
+    status: row.status == 0 ? 1 : 0
+  }
+  const message = row.status == 0 ? '启用' : '禁用'
+  proxy.$modal.confirm(`是否确认${message}这条护理项目？`).then(function() {
+    return updateLevel(params)
+  }).then(() => {
+    getList()
+    proxy.$modal.msgSuccess(`${message}成功`)
+  })/** 禁用启用按钮操作 */
+function handleEnable(row) {
+  const params = {
+    id: row.id,
+    status: row.status == 0 ? 1 : 0
+  }
+  const message = row.status == 0 ? '启用' : '禁用'
 
+  proxy.$modal.confirm(`是否确认${message}这条护理等级？`)
+    .then(() => updateLevel(params))
+    .then(() => {
+      getList()
+      proxy.$modal.msgSuccess(`${message}成功`)
+    })
+    .catch(error => {
+      // 取消确认框时不提示；实际异常输出到控制台
+      if (error instanceof Error) {
+        console.error('切换护理等级状态失败：', error)
+      }
+    })
+}
+}
+/** 查询护理计划，供下拉框选择 */
+const getAllNursingPlanList = () => {
+  return listPlan({
+    pageNum: 1,
+    pageSize: 1000
+  }).then(response => {
+    nursingPlanList.value = response.rows
+  })
+}
 getList()
+getAllNursingPlanList()
 </script>
